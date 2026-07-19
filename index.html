@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinDash — Your investing command center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./live.css" />
+  <link rel="stylesheet" href="./panels.css" />
+  <link rel="stylesheet" href="./dashboard.css" />
+</head>
+
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#"><span class="brand-mark">F</span><span>FinDash</span></a>
+    <nav>
+      <a class="nav-link active" href="#overview"><span>⌘</span> Overview</a>
+      <a class="nav-link" href="#dashboard" id="nav-dashboard"><span>⊞</span> Dashboard</a>
+      <a class="nav-link" href="#portfolio"><span>◒</span> Portfolio</a>
+      <a class="nav-link" href="#markets"><span>⌁</span> Markets</a>
+      <a class="nav-link" href="#watchlist"><span>☆</span> Watchlist</a>
+      <a class="nav-link" href="#insights"><span>✦</span> AI insights <i>new</i></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="upgrade-card"><span>PRO PLAN</span><strong>Make sharper money moves.</strong><button>Upgrade
+          →</button></div>
+      <button class="profile"><span class="avatar">AJ</span><span>Anurag Jha<small>Personal
+            workspace</small></span><b>⌄</b></button>
+    </div>
+  </aside>
+
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">SATURDAY, 19 JULY</p>
+        <h1>Good morning, Anurag <span>↗</span></h1>
+      </div>
+      <div class="header-actions"><button class="icon-btn">⌕</button><button class="icon-btn notify">♧</button><button
+          class="connect" id="connect-broker">+ Connect Zerodha</button></div>
+    </header>
+
+    <div id="overview-view">
+      <section class="hero" id="overview">
+        <div class="hero-copy">
+          <p class="eyebrow">NET WORTH</p>
+          <h2 id="net-worth">₹31,84,620<span>.45</span></h2>
+          <div class="gain"><b id="day-pnl">+₹42,860.50</b><span id="day-percent">Live after broker connect</span></div>
+          <p class="muted" id="portfolio-status">Demo portfolio · connect Zerodha for live data</p>
+        </div>
+        <div class="hero-chart">
+          <div class="range"><button>1D</button><button>1W</button><button
+              class="selected">1M</button><button>1Y</button><button>ALL</button></div><svg viewBox="0 0 600 160"
+            preserveAspectRatio="none" aria-label="Portfolio performance chart">
+            <defs>
+              <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
+                <stop stop-color="#84e2bd" stop-opacity=".4" />
+                <stop offset="1" stop-color="#84e2bd" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M0 132 C25 128 29 109 52 118 S75 132 95 102 S126 103 151 86 S183 113 204 81 S231 82 250 66 S280 86 305 55 S332 70 356 61 S390 50 410 64 S440 49 466 32 S497 58 518 35 S555 48 600 8 L600 160 L0 160Z"
+              fill="url(#fill)" />
+            <path
+              d="M0 132 C25 128 29 109 52 118 S75 132 95 102 S126 103 151 86 S183 113 204 81 S231 82 250 66 S280 86 305 55 S332 70 356 61 S390 50 410 64 S440 49 466 32 S497 58 518 35 S555 48 600 8"
+              fill="none" stroke="#88e1be" stroke-width="3" />
+            <circle cx="518" cy="35" r="5" fill="#12231e" stroke="#c2ffdf" stroke-width="3" />
+          </svg>
+          <div class="chart-labels"><span>19 Jun</span><span>26 Jun</span><span>03 Jul</span><span>10
+              Jul</span><span>Today</span></div>
+        </div>
+      </section>
+
+      <section class="stats-grid" id="portfolio">
+        <article>
+          <p>INVESTED VALUE</p><strong id="invested-value">—</strong><span class="positive" id="return-percent">Connect
+            Zerodha</span>
+        </article>
+        <article>
+          <p>DAY'S P&amp;L</p><strong id="day-card">—</strong><span id="day-card-label">Live after broker connect</span>
+        </article>
+        <article>
+          <p>RETURNS</p><strong id="total-return">—</strong><span>Portfolio P&amp;L percentage</span>
+        </article>
+        <article>
+          <p>TOTAL P&amp;L</p><strong id="total-pnl">—</strong><span id="total-pnl-pct">Unrealised on holdings</span>
+        </article>
+        <article>
+          <p>RISK SCORE</p><strong>Medium <b class="risk-dot"></b></strong><span>Well diversified</span>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel allocations">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">PORTFOLIO</p>
+              <h3>Asset allocation</h3>
+            </div><button class="text-btn">Details →</button>
+          </div>
+          <div class="allocation-body">
+            <div class="donut">
+              <div><strong>₹31.8L</strong><span>Total value</span></div>
+            </div>
+            <ul>
+              <li><b class="dot equity"></b><span>Indian equity</span><strong>62.4%</strong></li>
+              <li><b class="dot mutual"></b><span>Mutual funds</span><strong>19.8%</strong></li>
+              <li><b class="dot debt"></b><span>Debt &amp; bonds</span><strong>10.2%</strong></li>
+              <li><b class="dot gold"></b><span>Gold &amp; ETFs</span><strong>7.6%</strong></li>
+            </ul>
+          </div>
+        </article>
+        <article class="panel market-pulse" id="markets">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">MARKET PULSE</p>
+              <h3>India closes higher</h3>
+            </div><span class="live"><i></i> LIVE</span>
+          </div>
+          <div class="indices">
+            <div><span>NIFTY 50</span><strong>24,847.35</strong><b>+0.42%</b></div>
+            <div><span>SENSEX</span><strong>81,756.18</strong><b>+0.28%</b></div>
+            <div><span>BANK NIFTY</span><strong>56,221.70</strong><b class="negative">−0.14%</b></div>
+          </div>
+          <div class="heatmap"><span class="heat a">IT<br /><b>+1.8%</b></span><span
+               class="heat b">PHARMA<br /><b>+1.3%</b></span><span class="heat c">AUTO<br /><b>+0.7%</b></span><span
+               class="heat d">BANKS<br /><b>−0.4%</b></span><span class="heat e">METAL<br /><b>+0.3%</b></span></div>
+        </article>
+      </section>
+
+      <section class="lower-grid">
+        <article class="panel holdings" id="watchlist">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">TOP HOLDINGS</p>
+              <h3>Portfolio watchlist</h3>
+            </div><button class="text-btn">View all →</button>
+          </div>
+          <div class="holding-row heading"><span>COMPANY</span><span>PRICE</span><span>DAY</span><span>WEIGHT</span>
+          </div>
+          <div id="holdings-list">
+            <div class="holding-row"><span class="company"><i class="logo hdfc">H</i><b>HDFC
+                  Bank<small>HDFCBANK</small></b></span><strong>₹1,964.20</strong><b
+                class="positive">+1.42%</b><span>13.8%</span></div>
+            <div class="holding-row"><span class="company"><i
+                  class="logo rel">R</i><b>Reliance<small>RELIANCE</small></b></span><strong>₹1,472.80</strong><b
+                class="positive">+0.86%</b><span>11.4%</span></div>
+            <div class="holding-row"><span class="company"><i
+                  class="logo infy">i</i><b>Infosys<small>INFY</small></b></span><strong>₹1,616.35</strong><b
+                class="negative">−0.34%</b><span>9.7%</span></div>
+          </div>
+        </article>
+        <article class="panel ai-card" id="insights">
+          <div class="sparkle">✦</div>
+          <p class="eyebrow">FINDASH INTELLIGENCE</p>
+          <h3>Your portfolio is<br /><em>beating the market.</em></h3>
+          <p>Your 18.62% XIRR is 5.8% above the Nifty 50 over the same period.</p>
+          <div class="ai-tip"><span>↗</span>
+            <p><b>Opportunity spotted</b><br />Pharma exposure is 4.2% below your target.</p>
+          </div><button>Open AI advisor <span>→</span></button>
+        </article>
+      </section>
+      <section class="live-insights" id="live-insights" hidden aria-live="polite"></section>
+    </div>
+
+    <div id="dashboard-view" hidden>
+      <!-- Top Stats Row -->
+      <section class="stats-grid dashboard-stats">
+        <article>
+          <p>INVESTMENT</p>
+          <strong id="db-investment">₹0</strong>
+          <span id="db-investment-label">Pay-in − Pay-out</span>
+        </article>
+        <article>
+          <p>PROFIT / LOSS</p>
+          <strong id="db-profit">₹0</strong>
+          <span id="db-profit-percent" class="positive">0.00%</span>
+        </article>
+        <article>
+          <p>CURRENT VALUE</p>
+          <strong id="db-current-value">₹0</strong>
+          <span id="db-current-value-label">Holdings + Cash</span>
+        </article>
+        <article>
+          <p>WIN RATE</p>
+          <strong id="db-win-rate">0%</strong>
+          <span id="db-win-rate-label">of 0 trades</span>
+        </article>
+      </section>
+
+      <!-- Tradebook Upload Banner -->
+      <div id="db-tradebook-banner"></div>
+
+      <!-- Monthly Journal Table -->
+      <section class="panel db-monthly-panel">
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">PERFORMANCE JOURNAL</p>
+            <h3>Monthly Performance Table</h3>
+          </div>
+          <div class="table-actions">
+            <span class="pnl-summary-badge" id="db-year-pnl-summary">Year P/L: 0.00%</span>
+            <div class="db-range-selector" id="db-range-selector">
+              <button class="range-btn active" data-range="all">ALL</button>
+              <button class="range-btn" data-range="30d">30D</button>
+              <button class="range-btn" data-range="90d">90D</button>
+              <button class="range-btn" data-range="180d">180D</button>
+            </div>
+          </div>
+        </div>
+        <div class="db-table-wrapper">
+          <table class="db-monthly-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Starting Cap</th>
+                <th>Added/Withdrawn</th>
+                <th>P&amp;L</th>
+                <th>Charges</th>
+                <th>P&amp;L %</th>
+                <th>Final Cap</th>
+                <th>Trades</th>
+                <th>Win %</th>
+                <th>Avg Gain</th>
+                <th>Avg Loss</th>
+                <th>Avg R:R</th>
+                <th>Best Impact</th>
+                <th>Worst Impact</th>
+                <th>Avg Days</th>
+              </tr>
+            </thead>
+            <tbody id="db-monthly-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Split Grid (Left Panels, Right Equity Chart) -->
+      <section class="db-split-grid">
+        <!-- Left side widgets -->
+        <div class="db-widgets-column">
+          <!-- Statistics of the last N -->
+          <article class="panel db-stats-n-panel">
+            <div class="panel-title-inline">
+              <h3>Statistics of the last</h3>
+              <div class="n-selector">
+                <input type="number" id="db-n-count" value="20" min="1" max="100" />
+                <span>trades</span>
+              </div>
+            </div>
+            <div class="db-stats-n-grid">
+              <div><span>Win %</span><strong id="db-n-win-percent">0.0%</strong></div>
+              <div><span>Avg Gain</span><strong id="db-n-avg-gain" class="positive">0.0%</strong></div>
+              <div><span>Avg Loss</span><strong id="db-n-avg-loss" class="negative">0.0%</strong></div>
+              <div><span>Avg Po Size</span><strong id="db-n-avg-pos-size">0.0%</strong></div>
+              <div><span>Avg Holding Days</span><strong id="db-n-avg-days">0</strong></div>
+              <div><span>R-multiple</span><strong id="db-n-r-multiple">0.0</strong></div>
+            </div>
+          </article>
+
+          <!-- Overall stats details -->
+          <article class="panel db-overall-panel">
+            <div class="panel-title">
+              <div>
+                <p class="eyebrow">METRICS</p>
+                <h3>Key Performance Indicators</h3>
+              </div>
+            </div>
+            <div class="db-overall-metrics">
+              <div class="metric-line"><span>Average R-multiple</span><strong id="db-overall-avg-r">0.00</strong></div>
+              <div class="metric-line"><span>Open Positions</span><strong id="db-overall-open-positions">0</strong>
+              </div>
+              <div class="metric-line"><span>Cash Weight</span><strong id="db-overall-cash-weight">0%</strong></div>
+              <div class="metric-line"><span>Open Heat</span><strong id="db-overall-open-heat">0.00%</strong></div>
+            </div>
+          </article>
+
+          <!-- Key Records -->
+          <article class="panel db-records-panel">
+            <div class="panel-title">
+              <div>
+                <p class="eyebrow">RECORDS</p>
+                <h3>Best &amp; Worst Trades</h3>
+              </div>
+            </div>
+            <div class="db-records-list">
+              <div class="record-row">
+                <span class="label">Best Move</span>
+                <div class="value-block">
+                  <strong class="positive" id="db-best-move-percent">0.00%</strong>
+                  <span class="details" id="db-best-move-desc">---</span>
+                </div>
+              </div>
+              <div class="record-row">
+                <span class="label">Worst Move</span>
+                <div class="value-block">
+                  <strong class="negative" id="db-worst-move-percent">0.00%</strong>
+                  <span class="details" id="db-worst-move-desc">---</span>
+                </div>
+              </div>
+              <div class="record-row">
+                <span class="label">Best PF Impact</span>
+                <div class="value-block">
+                  <strong class="positive" id="db-best-impact-percent">0.00%</strong>
+                  <span class="details" id="db-best-impact-desc">---</span>
+                </div>
+              </div>
+              <div class="record-row">
+                <span class="label">Worst PF Impact</span>
+                <div class="value-block">
+                  <strong class="negative" id="db-worst-impact-percent">0.00%</strong>
+                  <span class="details" id="db-worst-impact-desc">---</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <!-- Right side Equity Curve Chart -->
+        <article class="panel db-chart-panel">
+          <div class="panel-title">
+            <div>
+              <p class="eyebrow">GROWTH TREND</p>
+              <h3>Equity Curve</h3>
+            </div>
+          </div>
+          <div class="db-chart-container">
+            <svg id="db-equity-chart" viewBox="0 0 600 300" preserveAspectRatio="none">
+              <!-- SVG path, gridlines and gradients rendered dynamically -->
+            </svg>
+          </div>
+        </article>
+      </section>
+    </div>
+  </main>
+  <script src="./app.js"></script>
+</body>
+
+</html>

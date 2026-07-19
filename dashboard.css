@@ -1,0 +1,468 @@
+/* Dashboard specific styles */
+
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dashboard-stats {
+  margin-top: 0 !important;
+  margin-bottom: 16px !important;
+}
+
+.db-monthly-panel {
+  padding: 23px;
+  margin-bottom: 16px;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pnl-summary-badge {
+  background: var(--nav);
+  color: var(--mint);
+  font: 600 11px 'DM Mono', monospace;
+  padding: 5px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+
+.db-table-wrapper {
+  overflow-x: auto;
+  margin-top: 20px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.db-monthly-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: right;
+}
+
+.db-monthly-table th {
+  background: #fafdfa;
+  color: var(--muted);
+  font: 500 10px 'DM Mono', monospace;
+  letter-spacing: 0.5px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  text-transform: uppercase;
+}
+
+.db-monthly-table th:first-child,
+.db-monthly-table td:first-child {
+  text-align: left;
+  font-weight: 700;
+}
+
+.db-monthly-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #edf0ed;
+  color: #424c47;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 500;
+}
+
+.db-monthly-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.db-monthly-table tr:hover td {
+  background: #f9fbf9;
+}
+
+.db-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 16px;
+}
+
+.db-widgets-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-title-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+}
+
+.panel-title-inline h3 {
+  font-size: 16px;
+  letter-spacing: -0.6px;
+  margin: 0;
+}
+
+.n-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.n-selector input {
+  width: 54px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fdfdfc;
+  font: 700 12px 'Manrope', sans-serif;
+  color: var(--ink);
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.n-selector input:focus {
+  border-color: var(--green);
+}
+
+.db-stats-n-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.db-stats-n-grid div {
+  background: #fafdfa;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.db-stats-n-grid span {
+  display: block;
+  font: 500 9px 'DM Mono', monospace;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+
+.db-stats-n-grid strong {
+  display: block;
+  font-size: 16px;
+  letter-spacing: -0.5px;
+  color: var(--ink);
+}
+
+.db-overall-panel {
+  padding: 20px;
+}
+
+.db-overall-metrics {
+  margin-top: 14px;
+}
+
+.db-overall-metrics .metric-line {
+  padding: 12px 0;
+  border-top: 1px solid #edf0ed;
+  font-size: 12px;
+}
+
+.db-overall-metrics .metric-line:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.db-overall-metrics strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.db-records-panel {
+  padding: 20px;
+}
+
+.db-records-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 14px;
+}
+
+.record-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid #edf0ed;
+}
+
+.record-row:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.record-row .label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.record-row .value-block {
+  text-align: right;
+}
+
+.record-row strong {
+  display: block;
+  font-size: 13px;
+  letter-spacing: -0.3px;
+}
+
+.record-row .details {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Equity Chart styling */
+.db-chart-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 450px;
+}
+
+.db-chart-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 20px;
+  position: relative;
+  width: 100%;
+}
+
+.db-chart-container svg {
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  display: block;
+}
+
+.chart-grid-line {
+  stroke: #ebeeeb;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-axis-line {
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.chart-label-text {
+  fill: var(--muted);
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0px 3px 6px rgba(22, 131, 93, 0.15));
+}
+
+.chart-area {
+  opacity: 0.08;
+}
+
+.chart-point {
+  fill: #fff;
+  stroke: var(--green);
+  stroke-width: 2.5;
+  transition: r 0.15s ease;
+  cursor: pointer;
+}
+
+.chart-point:hover {
+  r: 6;
+}
+
+/* Tooltip */
+.chart-tooltip {
+  position: absolute;
+  background: var(--nav);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-family: 'Manrope', sans-serif;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: none;
+  z-index: 10;
+  transform: translate(-50%, -100%);
+  margin-top: -10px;
+}
+
+.chart-tooltip::after {
+  content: '';
+  position: absolute;
+  border: 5px solid transparent;
+  border-top-color: var(--nav);
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+@media(max-width:1050px) {
+  .db-split-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .db-chart-panel {
+    min-height: 350px;
+  }
+}
+
+@media(max-width:680px) {
+
+  .db-monthly-table th,
+  .db-monthly-table td {
+    padding: 8px 6px;
+    font-size: 10px;
+  }
+
+  .db-stats-n-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Tradebook Upload Banner ───────────────────────────────────────────── */
+#db-tradebook-banner {
+  margin-bottom: 16px;
+}
+
+.tb-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1.5px dashed var(--line);
+  background: var(--surface, #f8faf8);
+  transition: border-color 0.25s, background 0.25s;
+}
+
+.tb-banner--loaded {
+  border-style: solid;
+  border-color: var(--green);
+  background: rgba(27, 145, 103, 0.04);
+}
+
+.tb-banner--empty {
+  border-color: #cbd5cb;
+}
+
+.tb-banner--loading {
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tb-banner--error {
+  border-color: #e35050;
+  background: #fff5f5;
+  color: #c94040;
+  font-size: 13px;
+  gap: 10px;
+}
+
+.tb-banner--error button {
+  background: none;
+  border: 1px solid #c94040;
+  color: #c94040;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tb-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tb-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.tb-info div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tb-info strong {
+  font: 700 13px 'Manrope', sans-serif;
+  color: var(--ink);
+}
+
+.tb-info small {
+  font: 500 11px 'Manrope', sans-serif;
+  color: var(--muted);
+}
+
+.tb-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--nav);
+  color: #fff;
+  font: 600 12px 'Manrope', sans-serif;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.tb-upload-btn:hover {
+  opacity: 0.85;
+}
+
+.tb-upload-btn--primary {
+  background: var(--green);
+  box-shadow: 0 2px 8px rgba(27, 145, 103, 0.25);
+}
+
+/* Upload spinner */
+.tb-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: tb-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
