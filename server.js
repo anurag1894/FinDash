@@ -1,21 +1,117 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createServer, IncomingMessage } from 'node:http';
+import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 if (existsSync(join(root, '.env.local'))) for (const line of readFileSync(join(root, '.env.local'), 'utf8').split(/\r?\n/)) { const match = line.match(/^\s*([A-Z0-9_]+)=(.*)\s*$/); if (match && !process.env[match[1]]) process.env[match[1]] = match[2]; }
-const { KITE_API_KEY, KITE_API_SECRET, PORT = '4173' } = process.env;
-const sessions = new Map(), states = new Map();
-const mime = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8' };
-const json = (res, status, data, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers }); res.end(JSON.stringify(data)); };
+const { KITE_API_KEY, KITE_API_SECRET, PORT = '4173', APP_PASSWORD, SESSION_SECRET = randomBytes(32).toString('hex') } = process.env;
+const kiteSessions = new Map(), states = new Map();
+const authSessions = new Set();
+const mime = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8', '.woff2': 'font/woff2' };
+const secHeaders = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' };
+const json = (res, status, data, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...secHeaders, ...headers }); res.end(JSON.stringify(data)); };
 const readCookies = req => Object.fromEntries((req.headers.cookie || '').split(';').map(v => v.trim().split('=').map(decodeURIComponent)).filter(v => v.length === 2));
 const kite = async (path, token, options = {}) => { const response = await fetch(`https://api.kite.trade${path}`, { ...options, headers: { 'X-Kite-Version': '3', Authorization: `token ${KITE_API_KEY}:${token}`, ...options.headers } }); const body = await response.json().catch(() => ({})); if (!response.ok || body.status === 'error') throw new Error(body.message || 'Kite Connect request failed'); return body.data; };
 const amount = value => Math.round((value || 0) * 100) / 100;
 
+// ── Authentication ──────────────────────────────────────────────────────────
+const loginAttempts = new Map();
+function checkRateLimit(ip) {
+    const now = Date.now();
+    const entry = loginAttempts.get(ip) || { count: 0, resetAt: now + 900000 };
+    if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + 900000; }
+    entry.count++;
+    loginAttempts.set(ip, entry);
+    return entry.count <= 5;
+}
+
+function signToken(token) {
+    return createHmac('sha256', SESSION_SECRET).update(token).digest('hex');
+}
+
+function makeSessionCookie(token, maxAge = 86400) {
+    const signed = `${token}.${signToken(token)}`;
+    const secure = process.env.NODE_ENV === 'production' ? ' Secure;' : '';
+    return `findash_auth=${encodeURIComponent(signed)}; HttpOnly;${secure} SameSite=Strict; Path=/; Max-Age=${maxAge}`;
+}
+
+function verifyAuthCookie(req) {
+    if (!APP_PASSWORD) return true;
+    const raw = readCookies(req).findash_auth;
+    if (!raw) return false;
+    const dot = raw.lastIndexOf('.');
+    if (dot === -1) return false;
+    const token = raw.slice(0, dot), sig = raw.slice(dot + 1);
+    const expected = signToken(token);
+    if (sig.length !== expected.length) return false;
+    try { if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return false; } catch { return false; }
+    return authSessions.has(token);
+}
+
+const LOGIN_PAGE = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FinDash — Login</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Manrope',system-ui,sans-serif;background:#f3f6f3;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{background:#fff;border-radius:16px;padding:40px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.08)}
+.logo{font:700 22px 'Manrope',sans-serif;color:#1b2e24;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.logo span{background:#1b2e24;color:#84e2bd;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-size:14px;font-weight:800}
+.sub{font-size:13px;color:#74817b;margin-bottom:28px}
+label{font:600 11px 'DM Mono',monospace;color:#74817b;letter-spacing:0.5px;text-transform:uppercase;display:block;margin-bottom:6px}
+input{width:100%;padding:12px 14px;border:1.5px solid #dce3dc;border-radius:10px;font:500 14px 'Manrope',sans-serif;outline:none;transition:border 0.2s}
+input:focus{border-color:#16835d}
+button{width:100%;margin-top:20px;padding:13px;background:#1b2e24;color:#fff;font:600 14px 'Manrope',sans-serif;border:none;border-radius:10px;cursor:pointer;transition:opacity 0.2s}
+button:hover{opacity:0.85}
+.err{color:#c55550;font-size:12px;margin-top:12px;text-align:center;display:none}
+</style></head><body>
+<div class="card">
+<div class="logo"><span>F</span> FinDash</div>
+<p class="sub">Enter your password to access the dashboard.</p>
+<form method="POST" action="/auth/login">
+<label>Password</label>
+<input type="password" name="password" autofocus required autocomplete="current-password"/>
+<button type="submit">Sign in</button>
+<p class="err" id="err"></p>
+</form>
+</div>
+<script>
+const p=new URLSearchParams(location.search);
+if(p.get('error')){const e=document.getElementById('err');e.textContent=p.get('error');e.style.display='block'}
+</script>
+</body></html>`;
+
+function authGuard(req, url) {
+    if (!APP_PASSWORD) return null;
+    const path = url.pathname;
+    if (path === '/auth/login' || path === '/api/auth/kite/callback') return null;
+    if (verifyAuthCookie(req)) return null;
+    return 'login';
+}
+
 // ── Tradebook: CSV parser + FIFO P&L engine ──────────────────────────────────
 let tradebookCache = null; // { trades, realizedPnl, uploadedAt, filename, source }
+const TRADES_HISTORY_FILE = join(root, 'trades-history.json');
+
+function loadTradesHistory() {
+    if (!existsSync(TRADES_HISTORY_FILE)) return { trades: [], lastSyncAt: null, syncCount: 0 };
+    try { return JSON.parse(readFileSync(TRADES_HISTORY_FILE, 'utf8')); }
+    catch { return { trades: [], lastSyncAt: null, syncCount: 0 }; }
+}
+
+function saveTradesHistory(history) {
+    writeFileSync(TRADES_HISTORY_FILE, JSON.stringify(history, null, 2), 'utf8');
+}
+
+function kiteTradeToRaw(t) {
+    const dateStr = (t.fill_timestamp || t.order_timestamp || '').replace(/T.*/, '').split(' ')[0] || '';
+    return {
+        symbol: t.tradingsymbol, isin: '', date: dateStr, exchange: t.exchange,
+        type: (t.transaction_type || '').toLowerCase(), qty: t.quantity, price: t.average_price,
+        time: t.fill_timestamp || t.order_timestamp || '', tradeId: t.trade_id, orderId: t.order_id,
+    };
+}
 
 import XLSX from 'xlsx';
 
@@ -46,12 +142,21 @@ function parseTradebookCsv(csvText) {
 }
 
 function computeFifoPnl(rawTrades) {
+    const agg = {};
+    for (const t of rawTrades) {
+        const key = `${t.symbol}|${t.date}|${t.type}`;
+        if (!agg[key]) { agg[key] = { ...t, _tv: t.qty * t.price }; }
+        else { agg[key]._tv += t.qty * t.price; agg[key].qty += t.qty; if (t.time < agg[key].time) agg[key].time = t.time; }
+    }
+    const merged = Object.values(agg).map(g => ({ ...g, price: g.qty > 0 ? g._tv / g.qty : g.price }));
+    merged.sort((a, b) => new Date(a.time) - new Date(b.time));
+
     const inventory = {}; // symbol -> [{qty, price, date}]
     let realizedPnl = 0;
     const completedTrades = [];
     let tradeNo = 0;
 
-    for (const t of rawTrades) {
+    for (const t of merged) {
         const sym = t.symbol;
         if (!inventory[sym]) inventory[sym] = [];
 
@@ -89,7 +194,7 @@ function computeFifoPnl(rawTrades) {
                     closeDate: t.date,
                     month: d.getMonth() + 1,
                     qty: Math.round(soldQty),
-                    entryPrice: amount(entryPrice),
+                    entryPrice: amount(soldQty > 0 ? cost / soldQty : entryPrice),
                     exitPrice: amount(t.price),
                     pnl: amount(pnl),
                     charges: amount(charges),
@@ -101,6 +206,76 @@ function computeFifoPnl(rawTrades) {
         }
     }
     return { completedTrades, realizedPnl: amount(realizedPnl) };
+}
+
+function computeAdvancedAnalytics(trades) {
+    if (!trades || !trades.length) return null;
+    const wins = trades.filter(t => t.netPnl > 0);
+    const losses = trades.filter(t => t.netPnl <= 0);
+    let ws = 0, ls = 0, maxWS = 0, maxLS = 0;
+    for (const t of trades) {
+        if (t.netPnl > 0) { ws++; ls = 0; if (ws > maxWS) maxWS = ws; }
+        else { ls++; ws = 0; if (ls > maxLS) maxLS = ls; }
+    }
+    let peak = 0, cumPnl = 0, maxDD = 0;
+    const ddSeries = [];
+    for (const t of trades) {
+        cumPnl += t.netPnl;
+        if (cumPnl > peak) peak = cumPnl;
+        const dd = peak > 0 ? ((peak - cumPnl) / peak) * 100 : 0;
+        ddSeries.push({ trade: t.tradeNo, dd: amount(dd), cumPnl: amount(cumPnl) });
+        if (dd > maxDD) maxDD = dd;
+    }
+    const grossProfit = wins.reduce((s, t) => s + t.netPnl, 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.netPnl, 0));
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
+    const winRate = wins.length / trades.length;
+    const avgWinAmt = wins.length ? grossProfit / wins.length : 0;
+    const avgLossAmt = losses.length ? grossLoss / losses.length : 0;
+    const payoffRatio = avgLossAmt > 0 ? avgWinAmt / avgLossAmt : 0;
+    const expectancy = (winRate * avgWinAmt) - ((1 - winRate) * avgLossAmt);
+    const kelly = payoffRatio > 0 ? (winRate - ((1 - winRate) / payoffRatio)) * 100 : 0;
+    const returns = trades.map(t => t.pnlPercent);
+    const avgReturn = returns.reduce((s, r) => s + r, 0) / returns.length;
+    const variance = returns.reduce((s, r) => s + (r - avgReturn) ** 2, 0) / returns.length;
+    const sharpe = variance > 0 ? avgReturn / Math.sqrt(variance) : 0;
+    const totalNetProfit = trades.reduce((s, t) => s + t.netPnl, 0);
+    const maxDDAmt = peak > 0 ? peak * maxDD / 100 : 0;
+    const recoveryFactor = maxDDAmt > 0 ? totalNetProfit / maxDDAmt : 0;
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayOfWeek = {};
+    for (const name of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']) dayOfWeek[name] = { pnl: 0, count: 0, wins: 0 };
+    for (const t of trades) {
+        const d = new Date(t.closeDate || t.date);
+        const day = dayNames[d.getDay()];
+        if (dayOfWeek[day]) { dayOfWeek[day].pnl += t.netPnl; dayOfWeek[day].count++; if (t.netPnl > 0) dayOfWeek[day].wins++; }
+    }
+    const buckets = [
+        { label: '< -10%', min: -Infinity, max: -10 }, { label: '-10 to -5%', min: -10, max: -5 },
+        { label: '-5 to -2%', min: -5, max: -2 }, { label: '-2 to 0%', min: -2, max: 0 },
+        { label: '0 to 2%', min: 0, max: 2 }, { label: '2 to 5%', min: 2, max: 5 },
+        { label: '5 to 10%', min: 5, max: 10 }, { label: '> 10%', min: 10, max: Infinity },
+    ];
+    const distribution = buckets.map(b => ({ label: b.label, count: trades.filter(t => t.pnlPercent >= b.min && t.pnlPercent < b.max).length }));
+    const calendarData = {};
+    for (const t of trades) {
+        const date = (t.closeDate || t.date || '').split('T')[0];
+        if (!date) continue;
+        if (!calendarData[date]) calendarData[date] = { pnl: 0, count: 0 };
+        calendarData[date].pnl = amount(calendarData[date].pnl + t.netPnl);
+        calendarData[date].count++;
+    }
+    const avgWinHold = wins.length ? Math.round(wins.reduce((s, t) => s + t.holdingDays, 0) / wins.length) : 0;
+    const avgLossHold = losses.length ? Math.round(losses.reduce((s, t) => s + t.holdingDays, 0) / losses.length) : 0;
+    return {
+        streaks: { current: ws > 0 ? ws : -ls, maxWin: maxWS, maxLoss: maxLS },
+        drawdown: { max: amount(maxDD), current: amount(ddSeries.length ? ddSeries[ddSeries.length - 1].dd : 0), series: ddSeries },
+        profitFactor: amount(profitFactor), expectancy: amount(expectancy), payoffRatio: amount(payoffRatio),
+        kellyCriterion: amount(kelly), sharpe: amount(sharpe), recoveryFactor: amount(recoveryFactor),
+        dayOfWeek, distribution, calendarData,
+        holdingPeriod: { avgWin: avgWinHold, avgLoss: avgLossHold },
+        summary: { totalTrades: trades.length, winners: wins.length, losers: losses.length, winRate: amount(winRate * 100), avgWin: amount(avgWinAmt), avgLoss: amount(avgLossAmt), grossProfit: amount(grossProfit), grossLoss: amount(grossLoss), netProfit: amount(totalNetProfit) },
+    };
 }
 
 function parseTradebookXlsxRows(rows) {
@@ -211,6 +386,20 @@ async function parsePnlXlsx(filePathOrBuf) {
 }
 
 function loadTradebookFromDisk() {
+    // Priority 0: Kite API synced trades (persistent across restarts)
+    if (existsSync(TRADES_HISTORY_FILE)) {
+        try {
+            const history = loadTradesHistory();
+            const valid = history.trades.filter(t => t.symbol && (t.type === 'buy' || t.type === 'sell') && t.qty > 0 && t.price > 0);
+            if (valid.length > 0) {
+                const { completedTrades, realizedPnl } = computeFifoPnl(valid);
+                tradebookCache = { trades: completedTrades, realizedPnl, uploadedAt: history.lastSyncAt, filename: 'kite-api-sync', rawCount: valid.length, source: 'kite-sync' };
+                console.log(`[Kite Sync] Loaded ${valid.length} raw trades → ${completedTrades.length} completed · P&L ₹${realizedPnl}`);
+                return;
+            }
+        } catch (e) { console.warn('[Kite Sync] Failed to load history:', e.message); }
+    }
+
     // Priority 1: Tradebook XLSX (has full chronological execution timestamps)
     const tradebookXlsxFiles = ['tradebook-WMP493-EQ.xlsx'];
     for (const name of tradebookXlsxFiles) {
@@ -348,6 +537,47 @@ function getDashboard(holdings, positions, margins, orders, profile) {
 async function handler(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
+    // ── Login routes ──────────────────────────────────────────────────────────
+    if (url.pathname === '/auth/login' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...secHeaders });
+        return res.end(LOGIN_PAGE);
+    }
+
+    if (url.pathname === '/auth/login' && req.method === 'POST') {
+        const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress;
+        if (!checkRateLimit(ip)) {
+            res.writeHead(302, { Location: '/auth/login?error=Too+many+attempts.+Try+again+in+15+minutes.' });
+            return res.end();
+        }
+        const body = await readBody(req);
+        const params = new URLSearchParams(body.toString());
+        const password = params.get('password') || '';
+        if (!APP_PASSWORD || password !== APP_PASSWORD) {
+            res.writeHead(302, { Location: '/auth/login?error=Invalid+password.' });
+            return res.end();
+        }
+        const token = randomBytes(32).toString('hex');
+        authSessions.add(token);
+        res.writeHead(302, { Location: '/', 'Set-Cookie': makeSessionCookie(token) });
+        return res.end();
+    }
+
+    if (url.pathname === '/auth/logout' && req.method === 'POST') {
+        const raw = readCookies(req).findash_auth || '';
+        const dot = raw.lastIndexOf('.');
+        if (dot > 0) authSessions.delete(raw.slice(0, dot));
+        res.writeHead(302, { Location: '/auth/login', 'Set-Cookie': makeSessionCookie('', 0) });
+        return res.end();
+    }
+
+    // ── Auth guard (all routes below require login if APP_PASSWORD is set) ───
+    const guard = authGuard(req, url);
+    if (guard === 'login') {
+        if (url.pathname.startsWith('/api/')) return json(res, 401, { error: 'Authentication required.' });
+        res.writeHead(302, { Location: '/auth/login' });
+        return res.end();
+    }
+
     if (url.pathname === '/api/health') return json(res, 200, { ok: true, kiteConfigured: Boolean(KITE_API_KEY && KITE_API_SECRET) });
 
     if (url.pathname === '/api/auth/kite') {
@@ -372,14 +602,14 @@ async function handler(req, res) {
             const body = await response.json();
             if (!response.ok || body.status !== 'success') throw new Error(body.message || 'Kite authentication failed');
             const id = randomBytes(32).toString('base64url');
-            sessions.set(id, { accessToken: body.data.access_token, expiresAt: Date.now() + 72000000 });
+            kiteSessions.set(id, { accessToken: body.data.access_token, expiresAt: Date.now() + 72000000 });
             res.writeHead(302, { Location: '/', 'Set-Cookie': `findash_session=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=72000` });
             return res.end();
         } catch (error) { res.writeHead(502); return res.end(`Kite connection failed: ${error.message}`); }
     }
 
     if (url.pathname === '/api/dashboard') {
-        const session = sessions.get(readCookies(req).findash_session);
+        const session = kiteSessions.get(readCookies(req).findash_session);
         if (!session || session.expiresAt < Date.now()) return json(res, 401, { connected: false, error: 'Connect your Zerodha account to load live holdings.' });
         try {
             const [holdings, positions, margins, orders, profile] = await Promise.all([
@@ -397,6 +627,40 @@ async function handler(req, res) {
     if (url.pathname === '/api/tradebook' && req.method === 'GET') {
         if (!tradebookCache) return json(res, 200, { loaded: false, trades: [], realizedPnl: 0, message: 'No tradebook uploaded yet.' });
         return json(res, 200, { loaded: true, ...tradebookCache });
+    }
+
+    if (url.pathname === '/api/tradebook/analytics' && req.method === 'GET') {
+        if (!tradebookCache || !tradebookCache.trades || !tradebookCache.trades.length) {
+            return json(res, 200, { available: false });
+        }
+        const analytics = computeAdvancedAnalytics(tradebookCache.trades);
+        return json(res, 200, { available: true, ...analytics });
+    }
+
+    if (url.pathname === '/api/trades/sync' && req.method === 'POST') {
+        const session = kiteSessions.get(readCookies(req).findash_session);
+        if (!session || session.expiresAt < Date.now()) return json(res, 401, { error: 'Not authenticated. Connect Zerodha first.' });
+        try {
+            const kiteTrades = await kite('/trades', session.accessToken);
+            const newRaw = (kiteTrades || [])
+                .filter(t => (t.transaction_type === 'BUY' || t.transaction_type === 'SELL'))
+                .map(kiteTradeToRaw);
+            const history = loadTradesHistory();
+            const existingIds = new Set(history.trades.map(t => t.tradeId));
+            const brandNew = newRaw.filter(t => t.tradeId && !existingIds.has(t.tradeId));
+            history.trades.push(...brandNew);
+            history.trades.sort((a, b) => new Date(a.time) - new Date(b.time));
+            history.lastSyncAt = new Date().toISOString();
+            history.syncCount++;
+            saveTradesHistory(history);
+            const valid = history.trades.filter(t => t.symbol && (t.type === 'buy' || t.type === 'sell') && t.qty > 0 && t.price > 0);
+            if (valid.length > 0) {
+                const { completedTrades, realizedPnl } = computeFifoPnl(valid);
+                tradebookCache = { trades: completedTrades, realizedPnl, uploadedAt: history.lastSyncAt, filename: 'kite-api-sync', rawCount: valid.length, source: 'kite-sync' };
+                console.log(`[Kite Sync] ${brandNew.length} new trades · Total: ${valid.length} raw → ${completedTrades.length} completed · P&L ₹${realizedPnl}`);
+            }
+            return json(res, 200, { ok: true, newTrades: brandNew.length, totalRaw: history.trades.length, completed: tradebookCache?.trades?.length || 0, realizedPnl: tradebookCache?.realizedPnl || 0, lastSyncAt: history.lastSyncAt });
+        } catch (error) { return json(res, 502, { error: `Sync failed: ${error.message}` }); }
     }
 
     if (url.pathname === '/api/tradebook/upload' && req.method === 'POST') {
@@ -486,15 +750,17 @@ async function handler(req, res) {
     }
 
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
-        sessions.delete(readCookies(req).findash_session);
+        kiteSessions.delete(readCookies(req).findash_session);
         return json(res, 200, { ok: true }, { 'Set-Cookie': 'findash_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
     }
 
     if (url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Not found' });
 
     const file = join(root, normalize(url.pathname === '/' ? '/index.html' : url.pathname).replace(/^\/+/, ''));
-    if (!file.startsWith(root) || !existsSync(file)) { res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    if (!file.startsWith(root) || !existsSync(file)) { res.writeHead(404, secHeaders); return res.end('Not found'); }
+    const ct = mime[extname(file)] || 'application/octet-stream';
+    const csp = ct.includes('html') ? { 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'" } : {};
+    res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'no-store', ...secHeaders, ...csp });
     createReadStream(file).pipe(res);
 }
 

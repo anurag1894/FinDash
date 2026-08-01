@@ -38,6 +38,23 @@ document.querySelectorAll('.range button').forEach((button) => {
   });
 });
 
+let currentRange = 'all';
+function filterByRange(trades, range) {
+  if (range === 'all') return trades;
+  const days = { '30d': 30, '90d': 90, '180d': 180 }[range] || Infinity;
+  const cutoff = new Date(Date.now() - days * 86400000);
+  return trades.filter(t => new Date(t.closeDate || t.date) >= cutoff);
+}
+
+document.querySelectorAll('#db-range-selector .range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#db-range-selector .range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRange = btn.dataset.range;
+    renderDashboard();
+  });
+});
+
 function renderHoldings(holdings, total) {
   const list = document.querySelector('#holdings-list');
   if (!list) return;
@@ -160,18 +177,36 @@ async function loadTradebook() {
 function renderTradebookBanner() {
   const banner = document.getElementById('db-tradebook-banner');
   if (!banner) return;
+  const connected = window.lastDashboardData?.connected;
+
   if (tradebookData && tradebookData.loaded) {
     const ts = tradebookData.uploadedAt ? new Date(tradebookData.uploadedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    const isSync = tradebookData.source === 'kite-sync';
     banner.innerHTML = `
       <div class="tb-banner tb-banner--loaded">
         <div class="tb-info">
-          <span class="tb-icon">📄</span>
+          <span class="tb-icon">${isSync ? '⚡' : '📄'}</span>
           <div>
-            <strong>Tradebook loaded</strong>
-            <small>${tradebookData.rawCount} raw rows · ${tradebookData.trades.length} completed trades · Loaded ${ts}</small>
+            <strong>${isSync ? 'Kite trades synced' : 'Tradebook loaded'}</strong>
+            <small>${tradebookData.rawCount} raw trades · ${tradebookData.trades.length} completed · ${ts}</small>
           </div>
         </div>
+        ${connected ? '<button class="tb-upload-btn" onclick="syncTradesFromKite()">↻ Sync Now</button>' : ''}
         <label class="tb-upload-btn" for="tb-file-input">↑ Update CSV</label>
+        <input type="file" id="tb-file-input" accept=".csv,.xlsx" style="display:none"/>
+      </div>`;
+  } else if (connected) {
+    banner.innerHTML = `
+      <div class="tb-banner tb-banner--empty">
+        <div class="tb-info">
+          <span class="tb-icon">⚡</span>
+          <div>
+            <strong>Sync trades from Zerodha</strong>
+            <small>Fetch today's trades via Kite API. For historical data, upload CSV from Console → Reports → Tradebook.</small>
+          </div>
+        </div>
+        <button class="tb-upload-btn tb-upload-btn--primary" onclick="syncTradesFromKite()">⚡ Sync Trades</button>
+        <label class="tb-upload-btn" for="tb-file-input">↑ Upload CSV</label>
         <input type="file" id="tb-file-input" accept=".csv,.xlsx" style="display:none"/>
       </div>`;
   } else {
@@ -188,7 +223,6 @@ function renderTradebookBanner() {
         <input type="file" id="tb-file-input" accept=".csv,.xlsx" style="display:none"/>
       </div>`;
   }
-  // Bind upload handler
   const input = document.getElementById('tb-file-input');
   if (input) input.addEventListener('change', handleTradebookUpload);
 }
@@ -213,6 +247,21 @@ async function handleTradebookUpload(e) {
     banner.querySelector('.tb-banner')?.classList.add('tb-banner--success');
   } catch (err) {
     banner.innerHTML = `<div class="tb-banner tb-banner--error">❌ ${err.message} <button onclick="renderTradebookBanner()">Retry</button></div>`;
+  }
+}
+
+async function syncTradesFromKite() {
+  const banner = document.getElementById('db-tradebook-banner');
+  if (banner) banner.innerHTML = '<div class="tb-banner tb-banner--loading"><span class="tb-spinner"></span><span>Syncing trades from Zerodha...</span></div>';
+  try {
+    const res = await fetch('/api/trades/sync', { method: 'POST' });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Sync failed');
+    await loadTradebook();
+    renderTradebookBanner();
+    renderDashboard();
+  } catch (err) {
+    if (banner) banner.innerHTML = `<div class="tb-banner tb-banner--error">Sync: ${err.message} <button onclick="renderTradebookBanner()">Dismiss</button></div>`;
   }
 }
 
@@ -333,109 +382,107 @@ function drawEquityChart(trades, startingCapital) {
   if (!svg) return;
   svg.innerHTML = '';
 
-  const width = 600;
-  const height = 300;
-  const marginTop = 20;
-  const marginBottom = 40;
-  const marginLeft = 55;
-  const marginRight = 20;
+  const w = 600, h = 300;
+  const ml = 58, mr = 24, mt = 24, mb = 36;
+  const cw = w - ml - mr, ch = h - mt - mb;
 
-  const chartWidth = width - marginLeft - marginRight;
-  const chartHeight = height - marginTop - marginBottom;
+  if (!trades.length) {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', w / 2); t.setAttribute('y', h / 2);
+    t.setAttribute('text-anchor', 'middle'); t.setAttribute('fill', '#9aa69e');
+    t.setAttribute('font-size', '13'); t.setAttribute('font-family', 'Manrope, sans-serif');
+    t.textContent = 'Upload tradebook to see equity curve';
+    svg.appendChild(t);
+    return;
+  }
 
   let cumPnL = 0;
   const points = [{ x: 0, y: 0, label: 'Start', detail: 'Capital: ' + currency.format(startingCapital) }];
-
   trades.forEach((t, idx) => {
     cumPnL += t.netPnl;
-    const pct = (cumPnL / startingCapital) * 100;
     points.push({
       x: idx + 1,
-      y: pct,
+      y: (cumPnL / startingCapital) * 100,
       label: `Trade ${idx + 1}`,
       detail: `${t.symbol} · ${t.pnlPercent >= 0 ? '+' : ''}${t.pnlPercent.toFixed(2)}% · P&L: ${currency.format(t.netPnl)}`
     });
   });
 
   const yVals = points.map(p => p.y);
-  let yMin = Math.min(...yVals) - 1;
-  let yMax = Math.max(...yVals) + 1;
-
-  yMin = Math.floor(yMin / 5) * 5;
-  yMax = Math.ceil(yMax / 5) * 5;
+  const yPad = Math.max((Math.max(...yVals) - Math.min(...yVals)) * 0.15, 2);
+  let yMin = Math.floor((Math.min(...yVals) - yPad) / 5) * 5;
+  let yMax = Math.ceil((Math.max(...yVals) + yPad) / 5) * 5;
   if (yMax === yMin) { yMax += 5; yMin -= 5; }
 
-  const getX = (x) => marginLeft + (x / trades.length) * chartWidth;
-  const getY = (y) => marginTop + ((yMax - y) / (yMax - yMin)) * chartHeight;
+  const gx = x => ml + (x / trades.length) * cw;
+  const gy = y => mt + ((yMax - y) / (yMax - yMin)) * ch;
 
-  // linear gradient defs
-  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-  defs.innerHTML = `
-    <linearGradient id="db-chart-fill" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="#84e2bd" stop-opacity="0.3"/>
-      <stop offset="100%" stop-color="#84e2bd" stop-opacity="0"/>
-    </linearGradient>
-  `;
+  const positive = cumPnL >= 0;
+  const clr = positive ? '#16835d' : '#c55550';
+  const clrLight = positive ? '#84e2bd' : '#e8a0a0';
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs) => { const e = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v); return e; };
+
+  const defs = el('defs');
+  defs.innerHTML = `<linearGradient id="eq-fill" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0%" stop-color="${clrLight}" stop-opacity="0.4"/>
+    <stop offset="100%" stop-color="${clrLight}" stop-opacity="0.03"/>
+  </linearGradient>
+  <filter id="eq-glow"><feGaussianBlur stdDeviation="2.5" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>`;
   svg.appendChild(defs);
 
-  // Horizontal grid lines & labels
-  const gridCount = 5;
-  for (let i = 0; i <= gridCount; i++) {
-    const yVal = yMin + (i / gridCount) * (yMax - yMin);
-    const ySvg = getY(yVal);
-
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', marginLeft);
-    line.setAttribute('y1', ySvg);
-    line.setAttribute('x2', width - marginRight);
-    line.setAttribute('y2', ySvg);
-    line.setAttribute('class', 'chart-grid-line');
-    svg.appendChild(line);
-
-    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.setAttribute('x', marginLeft - 10);
-    text.setAttribute('y', ySvg + 4);
-    text.setAttribute('text-anchor', 'end');
-    text.setAttribute('class', 'chart-label-text');
-    text.textContent = `${yVal.toFixed(1)}%`;
-    svg.appendChild(text);
+  for (let i = 0; i <= 5; i++) {
+    const yVal = yMin + (i / 5) * (yMax - yMin);
+    const yy = gy(yVal);
+    svg.appendChild(el('line', { x1: ml, y1: yy, x2: w - mr, y2: yy, stroke: '#eef1ee', 'stroke-width': 1 }));
+    const lbl = el('text', { x: ml - 10, y: yy + 3.5, 'text-anchor': 'end', fill: '#9aa69e', 'font-size': 10, 'font-family': 'DM Mono, monospace' });
+    lbl.textContent = `${yVal >= 0 ? '+' : ''}${yVal.toFixed(1)}%`;
+    svg.appendChild(lbl);
   }
 
-  // X-axis labels
-  const xLabelSteps = [0, 15, 30, 45, 60, trades.length];
-  xLabelSteps.forEach(xVal => {
-    if (xVal > trades.length) return;
-    const xSvg = getX(xVal);
+  if (yMin < 0 && yMax > 0) {
+    svg.appendChild(el('line', { x1: ml, y1: gy(0), x2: w - mr, y2: gy(0), stroke: '#c8cdc8', 'stroke-width': 1.2, 'stroke-dasharray': '5 3' }));
+  }
 
-    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.setAttribute('x', xSvg);
-    text.setAttribute('y', height - marginBottom + 18);
-    text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('class', 'chart-label-text');
-    text.textContent = xVal === 0 ? 'Start' : `T${xVal}`;
-    svg.appendChild(text);
-  });
+  const total = trades.length;
+  const step = total <= 20 ? 5 : total <= 60 ? 10 : total <= 120 ? 20 : 30;
+  for (let x = 0; x <= total; x += step) {
+    const lbl = el('text', { x: gx(x), y: h - mb + 16, 'text-anchor': 'middle', fill: '#9aa69e', 'font-size': 10, 'font-family': 'DM Mono, monospace' });
+    lbl.textContent = x === 0 ? 'Start' : `#${x}`;
+    svg.appendChild(lbl);
+  }
+  if (total % step !== 0) {
+    const lbl = el('text', { x: gx(total), y: h - mb + 16, 'text-anchor': 'end', fill: '#9aa69e', 'font-size': 10, 'font-family': 'DM Mono, monospace' });
+    lbl.textContent = `#${total}`;
+    svg.appendChild(lbl);
+  }
 
-  // SVG Paths
-  let pathD = '';
-  points.forEach((p, idx) => {
-    const prefix = idx === 0 ? 'M' : 'L';
-    pathD += `${prefix} ${getX(p.x)} ${getY(p.y)} `;
-  });
+  const coords = points.map(p => [gx(p.x), gy(p.y)]);
+  let pathD = `M ${coords[0][0]} ${coords[0][1]}`;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p0 = coords[Math.max(i - 1, 0)];
+    const p1 = coords[i];
+    const p2 = coords[i + 1];
+    const p3 = coords[Math.min(i + 2, coords.length - 1)];
+    const tension = 0.25;
+    pathD += ` C ${p1[0] + (p2[0] - p0[0]) * tension} ${p1[1] + (p2[1] - p0[1]) * tension}, ${p2[0] - (p3[0] - p1[0]) * tension} ${p2[1] - (p3[1] - p1[1]) * tension}, ${p2[0]} ${p2[1]}`;
+  }
 
-  const areaD = `${pathD} L ${getX(points[points.length - 1].x)} ${getY(yMin)} L ${getX(0)} ${getY(yMin)} Z`;
-  const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  areaPath.setAttribute('d', areaD);
-  areaPath.setAttribute('fill', 'url(#db-chart-fill)');
-  areaPath.setAttribute('class', 'chart-area');
-  svg.appendChild(areaPath);
+  const lastPt = points[points.length - 1];
+  const areaD = `${pathD} L ${gx(lastPt.x)} ${gy(yMin)} L ${gx(0)} ${gy(yMin)} Z`;
+  svg.appendChild(el('path', { d: areaD, fill: 'url(#eq-fill)' }));
+  svg.appendChild(el('path', { d: pathD, fill: 'none', stroke: clr, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
 
-  const linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  linePath.setAttribute('d', pathD);
-  linePath.setAttribute('class', 'chart-line');
-  svg.appendChild(linePath);
+  svg.appendChild(el('circle', { cx: gx(0), cy: gy(0), r: 4, fill: '#fff', stroke: clr, 'stroke-width': 2 }));
+  svg.appendChild(el('circle', { cx: gx(lastPt.x), cy: gy(lastPt.y), r: 5, fill: '#fff', stroke: clr, 'stroke-width': 2.5, filter: 'url(#eq-glow)' }));
 
-  // Tooltip
+  const endLbl = el('text', { x: gx(lastPt.x), y: gy(lastPt.y) - 12, 'text-anchor': 'middle', fill: clr, 'font-size': 11, 'font-family': 'DM Mono, monospace', 'font-weight': 700 });
+  endLbl.textContent = `${lastPt.y >= 0 ? '+' : ''}${lastPt.y.toFixed(2)}%`;
+  svg.appendChild(endLbl);
+
   let tooltip = document.getElementById('db-chart-tooltip');
   if (!tooltip) {
     tooltip = document.createElement('div');
@@ -444,34 +491,33 @@ function drawEquityChart(trades, startingCapital) {
     document.querySelector('.db-chart-container').appendChild(tooltip);
   }
 
-  // Markers
-  points.forEach((p, idx) => {
-    if (idx !== 0 && idx % 5 !== 0 && idx !== points.length - 1) return;
+  const hoverLine = el('line', { x1: 0, y1: mt, x2: 0, y2: mt + ch, stroke: '#b0bab5', 'stroke-width': 1, 'stroke-dasharray': '3 2', opacity: 0 });
+  const hoverDot = el('circle', { cx: 0, cy: 0, r: 5, fill: clr, stroke: '#fff', 'stroke-width': 2, opacity: 0 });
+  svg.appendChild(hoverLine);
+  svg.appendChild(hoverDot);
 
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', getX(p.x));
-    circle.setAttribute('cy', getY(p.y));
-    circle.setAttribute('r', 4.5);
-    circle.setAttribute('class', 'chart-point');
-
-    circle.addEventListener('mouseover', (e) => {
-      tooltip.style.display = 'block';
-      tooltip.innerHTML = `<strong>${p.label}</strong><br/>Cumulative: ${p.y >= 0 ? '+' : ''}${p.y.toFixed(2)}%<br/><small>${p.detail}</small>`;
-
-      const rect = svg.getBoundingClientRect();
-      const xPct = (getX(p.x) / width) * rect.width;
-      const yPct = (getY(p.y) / height) * rect.height;
-
-      tooltip.style.left = `${xPct}px`;
-      tooltip.style.top = `${yPct}px`;
-    });
-
-    circle.addEventListener('mouseout', () => {
-      tooltip.style.display = 'none';
-    });
-
-    svg.appendChild(circle);
+  const hoverRect = el('rect', { x: ml, y: mt, width: cw, height: ch, fill: 'transparent', cursor: 'crosshair' });
+  hoverRect.addEventListener('mousemove', e => {
+    const rect = svg.getBoundingClientRect();
+    const mx = ((e.clientX - rect.left) / rect.width) * w;
+    const idx = Math.max(0, Math.min(Math.round(((mx - ml) / cw) * total), points.length - 1));
+    const pt = points[idx];
+    const px = gx(pt.x), py = gy(pt.y);
+    hoverLine.setAttribute('x1', px); hoverLine.setAttribute('x2', px); hoverLine.setAttribute('opacity', 1);
+    hoverDot.setAttribute('cx', px); hoverDot.setAttribute('cy', py); hoverDot.setAttribute('opacity', 1);
+    tooltip.style.display = 'block';
+    tooltip.innerHTML = `<strong>${pt.label}</strong><br/>${pt.y >= 0 ? '+' : ''}${pt.y.toFixed(2)}%<br/><small>${pt.detail}</small>`;
+    const tipX = (px / w) * rect.width;
+    const tipY = (py / h) * rect.height;
+    tooltip.style.left = `${tipX}px`;
+    tooltip.style.top = `${tipY}px`;
   });
+  hoverRect.addEventListener('mouseleave', () => {
+    hoverLine.setAttribute('opacity', 0);
+    hoverDot.setAttribute('opacity', 0);
+    tooltip.style.display = 'none';
+  });
+  svg.appendChild(hoverRect);
 }
 
 function renderDashboard() {
@@ -486,7 +532,8 @@ function renderDashboard() {
   // 2. Total Profit  = Realized P&L (from tradebook CSV) + Unrealized P&L (from holdings API)
   // 3. Investment    = Current Value − Total Profit  (net pay-in minus pay-out)
 
-  const trades = getTradeHistory(data);
+  const allTrades = getTradeHistory(data);
+  const trades = filterByRange(allTrades, currentRange);
   const hasTradebook = tradebookData && tradebookData.loaded;
   const realizedPnl = hasTradebook ? (tradebookData.realizedPnl || 0) : 0;
   const unrealizedPnl = unrealizedPnlFromAPI;
@@ -687,6 +734,192 @@ function renderDashboard() {
   }
 
   drawEquityChart(trades, startingCapital);
+  loadAnalytics();
+}
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+async function loadAnalytics() {
+  try {
+    const res = await fetch('/api/tradebook/analytics');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.available) return;
+    renderAnalyticsPanels(data);
+  } catch { /* analytics unavailable */ }
+}
+
+function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+function colorCode(id, pos) { const el = document.getElementById(id); if (el) el.className = pos ? 'positive' : 'negative'; }
+
+function renderAnalyticsPanels(a) {
+  const section = document.getElementById('db-analytics-section');
+  if (!section) return;
+  section.hidden = false;
+
+  setText('db-profit-factor', a.profitFactor >= 999 ? '∞' : a.profitFactor.toFixed(2));
+  setText('db-expectancy', currency.format(a.expectancy));
+  setText('db-payoff-ratio', a.payoffRatio.toFixed(2));
+  setText('db-kelly', `${a.kellyCriterion.toFixed(1)}%`);
+  setText('db-sharpe', a.sharpe.toFixed(2));
+  setText('db-recovery', a.recoveryFactor.toFixed(2));
+
+  colorCode('db-profit-factor', a.profitFactor >= 1);
+  colorCode('db-expectancy', a.expectancy >= 0);
+  colorCode('db-kelly', a.kellyCriterion >= 0);
+  colorCode('db-sharpe', a.sharpe >= 0);
+
+  const streak = a.streaks.current;
+  const streakEl = document.getElementById('db-current-streak');
+  if (streakEl) {
+    streakEl.textContent = streak > 0 ? `${streak}W` : streak < 0 ? `${Math.abs(streak)}L` : '—';
+    streakEl.className = `streak-value ${streak > 0 ? 'positive' : streak < 0 ? 'negative' : ''}`;
+  }
+  setText('db-max-win-streak', `${a.streaks.maxWin} trades`);
+  setText('db-max-loss-streak', `${a.streaks.maxLoss} trades`);
+  setText('db-avg-win-hold', `${a.holdingPeriod.avgWin} days`);
+  setText('db-avg-loss-hold', `${a.holdingPeriod.avgLoss} days`);
+  setText('db-gross-pl', `${shortCurrency(a.summary.grossProfit)} / ${shortCurrency(a.summary.grossLoss)}`);
+  setText('db-max-dd-badge', `Max DD: ${a.drawdown.max.toFixed(1)}%`);
+
+  drawDrawdownChart(a.drawdown.series);
+  drawDistributionChart(a.distribution);
+  drawDayOfWeekChart(a.dayOfWeek);
+  renderCalendarHeatmap(a.calendarData);
+}
+
+function drawDrawdownChart(series) {
+  const svg = document.getElementById('db-drawdown-chart');
+  if (!svg || !series.length) return;
+  svg.innerHTML = '';
+  const w = 500, h = 200, ml = 45, mr = 10, mt = 10, mb = 25;
+  const cw = w - ml - mr, ch = h - mt - mb;
+  const maxDD = Math.max(...series.map(s => s.dd), 1);
+  const yMax = Math.ceil(maxDD / 5) * 5 || 5;
+
+  const defs = svgEl('defs');
+  defs.innerHTML = '<linearGradient id="dd-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#c55550" stop-opacity="0.25"/><stop offset="100%" stop-color="#c55550" stop-opacity="0.02"/></linearGradient>';
+  svg.appendChild(defs);
+
+  for (let i = 0; i <= 4; i++) {
+    const y = mt + (i / 4) * ch;
+    svg.appendChild(svgEl('line', { x1: ml, y1: y, x2: w - mr, y2: y, stroke: '#ebeeeb', 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
+    const t = svgEl('text', { x: ml - 8, y: y + 3, 'text-anchor': 'end', fill: '#74817b', 'font-size': 9, 'font-family': 'DM Mono, monospace' });
+    t.textContent = `-${((i / 4) * yMax).toFixed(0)}%`;
+    svg.appendChild(t);
+  }
+
+  const getX = i => ml + (i / (series.length - 1 || 1)) * cw;
+  const getY = dd => mt + (dd / yMax) * ch;
+  const pathD = series.map((s, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(s.dd)}`).join(' ');
+
+  svg.appendChild(svgEl('path', { d: `${pathD} L ${getX(series.length - 1)} ${mt + ch} L ${getX(0)} ${mt + ch} Z`, fill: 'url(#dd-fill)' }));
+  svg.appendChild(svgEl('path', { d: pathD, fill: 'none', stroke: '#c55550', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+}
+
+function drawDistributionChart(distribution) {
+  const svg = document.getElementById('db-distribution-chart');
+  if (!svg || !distribution.length) return;
+  svg.innerHTML = '';
+  const w = 500, h = 220, ml = 10, mr = 10, mt = 15, mb = 50;
+  const cw = w - ml - mr, ch = h - mt - mb;
+  const maxCount = Math.max(...distribution.map(d => d.count), 1);
+  const barW = cw / distribution.length - 6;
+
+  distribution.forEach((d, i) => {
+    const x = ml + i * (cw / distribution.length) + 3;
+    const barH = (d.count / maxCount) * ch;
+    const y = mt + ch - barH;
+    const isLoss = d.label.includes('-') || d.label.startsWith('<');
+    svg.appendChild(svgEl('rect', { x, y, width: barW, height: Math.max(barH, 2), rx: 3, fill: isLoss ? '#e8b4b2' : '#a8efd0' }));
+    if (d.count > 0) {
+      const t = svgEl('text', { x: x + barW / 2, y: y - 5, 'text-anchor': 'middle', fill: '#424c47', 'font-size': 10, 'font-family': 'Manrope, sans-serif', 'font-weight': 600 });
+      t.textContent = d.count;
+      svg.appendChild(t);
+    }
+    const lbl = svgEl('text', { x: x + barW / 2, y: h - mb + 14, 'text-anchor': 'middle', fill: '#74817b', 'font-size': 8, 'font-family': 'DM Mono, monospace' });
+    lbl.textContent = d.label;
+    svg.appendChild(lbl);
+  });
+}
+
+function drawDayOfWeekChart(dayOfWeek) {
+  const svg = document.getElementById('db-dow-chart');
+  if (!svg) return;
+  svg.innerHTML = '';
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  const data = days.map(d => ({ day: d, ...(dayOfWeek[d] || { pnl: 0, count: 0, wins: 0 }) }));
+  const w = 400, h = 200, ml = 10, mr = 10, mt = 20, mb = 35;
+  const cw = w - ml - mr, ch = h - mt - mb;
+  const maxAbs = Math.max(...data.map(d => Math.abs(d.pnl)), 1);
+  const midY = mt + ch / 2;
+
+  svg.appendChild(svgEl('line', { x1: ml, y1: midY, x2: w - mr, y2: midY, stroke: '#d0d5d0', 'stroke-width': 1 }));
+  const barW = cw / days.length - 16;
+
+  data.forEach((d, i) => {
+    const x = ml + i * (cw / days.length) + 8;
+    const barH = Math.abs(d.pnl / maxAbs) * (ch / 2);
+    const y = d.pnl >= 0 ? midY - barH : midY;
+    svg.appendChild(svgEl('rect', { x, y, width: barW, height: Math.max(barH, 1), rx: 4, fill: d.pnl >= 0 ? '#1c9167' : '#c55550' }));
+    const vt = svgEl('text', { x: x + barW / 2, y: d.pnl >= 0 ? y - 6 : y + barH + 14, 'text-anchor': 'middle', fill: '#424c47', 'font-size': 9, 'font-family': 'DM Mono, monospace' });
+    vt.textContent = d.count > 0 ? shortCurrency(d.pnl) : '—';
+    svg.appendChild(vt);
+    const lt = svgEl('text', { x: x + barW / 2, y: h - 8, 'text-anchor': 'middle', fill: '#74817b', 'font-size': 10, 'font-family': 'Manrope, sans-serif', 'font-weight': 600 });
+    lt.textContent = d.day;
+    svg.appendChild(lt);
+  });
+}
+
+function renderCalendarHeatmap(calendarData) {
+  const container = document.getElementById('db-calendar-heatmap');
+  if (!container) return;
+  container.innerHTML = '';
+  const dates = Object.keys(calendarData).sort();
+  if (!dates.length) {
+    container.innerHTML = '<p class="muted" style="text-align:center;padding:20px">Upload tradebook to see trade calendar</p>';
+    return;
+  }
+  const months = {};
+  dates.forEach(d => { const key = d.substring(0, 7); if (!months[key]) months[key] = {}; months[key][d] = calendarData[d]; });
+  const mNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  Object.entries(months).forEach(([monthKey, days]) => {
+    const [year, mNum] = monthKey.split('-');
+    const monthDiv = document.createElement('div');
+    monthDiv.className = 'cal-month';
+    const header = document.createElement('div');
+    header.className = 'cal-month-header';
+    header.textContent = `${mNames[parseInt(mNum) - 1]} ${year}`;
+    monthDiv.appendChild(header);
+    const grid = document.createElement('div');
+    grid.className = 'cal-grid';
+    ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(d => { const dh = document.createElement('div'); dh.className = 'cal-day-header'; dh.textContent = d; grid.appendChild(dh); });
+    let startDay = new Date(parseInt(year), parseInt(mNum) - 1, 1).getDay() - 1;
+    if (startDay < 0) startDay = 6;
+    for (let i = 0; i < startDay; i++) { const e = document.createElement('div'); e.className = 'cal-cell empty'; grid.appendChild(e); }
+    const daysInMonth = new Date(parseInt(year), parseInt(mNum), 0).getDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${mNum}-${String(day).padStart(2, '0')}`;
+      const cell = document.createElement('div');
+      const data = days[dateStr];
+      if (data) {
+        const intensity = Math.min(Math.abs(data.pnl) / 5000, 1);
+        cell.className = `cal-cell ${data.pnl >= 0 ? 'cal-positive' : 'cal-negative'}`;
+        cell.style.opacity = 0.3 + intensity * 0.7;
+        cell.title = `${dateStr}: ${data.pnl >= 0 ? '+' : ''}₹${Math.round(data.pnl)} (${data.count} trade${data.count > 1 ? 's' : ''})`;
+      } else { cell.className = 'cal-cell'; }
+      cell.textContent = day;
+      grid.appendChild(cell);
+    }
+    monthDiv.appendChild(grid);
+    container.appendChild(monthDiv);
+  });
 }
 
 
@@ -757,6 +990,8 @@ async function loadLiveDashboard() {
     renderLivePanels(data);
     renderExtendedPanels(data);
     renderAssetAllocation(data);
+    renderTradebookBanner();
+    if (!window._hasSynced) { window._hasSynced = true; syncTradesFromKite(); }
   } catch {
     window.lastDashboardData = getMockDemoData();
     renderAssetAllocation(window.lastDashboardData);

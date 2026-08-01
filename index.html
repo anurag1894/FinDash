@@ -241,10 +241,8 @@
         </div>
       </section>
 
-      <!-- Split Grid (Left Panels, Right Equity Chart) -->
-      <section class="db-split-grid">
-        <!-- Left side widgets -->
-        <div class="db-widgets-column">
+      <section>
+        <div class="db-widgets-column" style="display:flex;flex-direction:column;gap:16px">
           <!-- Statistics of the last N -->
           <article class="panel db-stats-n-panel">
             <div class="panel-title-inline">
@@ -322,19 +320,132 @@
           </article>
         </div>
 
-        <!-- Right side Equity Curve Chart -->
-        <article class="panel db-chart-panel">
+      </section>
+
+      <!-- Advanced Analytics Section -->
+      <section id="db-analytics-section" class="db-analytics" hidden>
+        <div class="analytics-header">
+          <div>
+            <p class="eyebrow">ADVANCED ANALYTICS</p>
+            <h3>Risk &amp; Performance Metrics</h3>
+          </div>
+        </div>
+
+        <div class="risk-metrics-grid">
+          <article class="risk-metric-card">
+            <span>PROFIT FACTOR</span>
+            <strong id="db-profit-factor">—</strong>
+            <small>Gross profit / Gross loss</small>
+          </article>
+          <article class="risk-metric-card">
+            <span>EXPECTANCY</span>
+            <strong id="db-expectancy">—</strong>
+            <small>Expected value per trade</small>
+          </article>
+          <article class="risk-metric-card">
+            <span>PAYOFF RATIO</span>
+            <strong id="db-payoff-ratio">—</strong>
+            <small>Avg win / Avg loss</small>
+          </article>
+          <article class="risk-metric-card">
+            <span>KELLY %</span>
+            <strong id="db-kelly">—</strong>
+            <small>Optimal position sizing</small>
+          </article>
+          <article class="risk-metric-card">
+            <span>SHARPE RATIO</span>
+            <strong id="db-sharpe">—</strong>
+            <small>Risk-adjusted return</small>
+          </article>
+          <article class="risk-metric-card">
+            <span>RECOVERY FACTOR</span>
+            <strong id="db-recovery">—</strong>
+            <small>Net profit / Max DD</small>
+          </article>
+        </div>
+
+        <div class="analytics-split">
+          <article class="panel analytics-panel">
+            <div class="panel-title">
+              <div>
+                <p class="eyebrow">CONSISTENCY</p>
+                <h3>Streak Tracker</h3>
+              </div>
+            </div>
+            <div class="streak-grid">
+              <div class="streak-item">
+                <span>Current Streak</span>
+                <strong id="db-current-streak" class="streak-value">—</strong>
+              </div>
+              <div class="streak-item">
+                <span>Max Win Streak</span>
+                <strong id="db-max-win-streak" class="positive">—</strong>
+              </div>
+              <div class="streak-item">
+                <span>Max Loss Streak</span>
+                <strong id="db-max-loss-streak" class="negative">—</strong>
+              </div>
+              <div class="streak-item">
+                <span>Avg Win Hold</span>
+                <strong id="db-avg-win-hold">—</strong>
+              </div>
+              <div class="streak-item">
+                <span>Avg Loss Hold</span>
+                <strong id="db-avg-loss-hold">—</strong>
+              </div>
+              <div class="streak-item">
+                <span>Gross P / Gross L</span>
+                <strong id="db-gross-pl">—</strong>
+              </div>
+            </div>
+          </article>
+          <article class="panel analytics-panel">
+            <div class="panel-title">
+              <div>
+                <p class="eyebrow">RISK</p>
+                <h3>Drawdown Analysis</h3>
+              </div>
+              <span class="dd-badge" id="db-max-dd-badge">Max DD: —</span>
+            </div>
+            <div class="dd-chart-container">
+              <svg id="db-drawdown-chart" viewBox="0 0 500 200" preserveAspectRatio="none"></svg>
+            </div>
+          </article>
+        </div>
+
+        <div class="analytics-split">
+          <article class="panel analytics-panel">
+            <div class="panel-title">
+              <div>
+                <p class="eyebrow">DISTRIBUTION</p>
+                <h3>Trade Returns</h3>
+              </div>
+            </div>
+            <div class="dist-chart-container">
+              <svg id="db-distribution-chart" viewBox="0 0 500 220"></svg>
+            </div>
+          </article>
+          <article class="panel analytics-panel">
+            <div class="panel-title">
+              <div>
+                <p class="eyebrow">PATTERNS</p>
+                <h3>Day of Week P&amp;L</h3>
+              </div>
+            </div>
+            <div class="dow-chart-container">
+              <svg id="db-dow-chart" viewBox="0 0 400 200"></svg>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel analytics-panel full-width">
           <div class="panel-title">
             <div>
-              <p class="eyebrow">GROWTH TREND</p>
-              <h3>Equity Curve</h3>
+              <p class="eyebrow">ACTIVITY</p>
+              <h3>Trade Calendar</h3>
             </div>
           </div>
-          <div class="db-chart-container">
-            <svg id="db-equity-chart" viewBox="0 0 600 300" preserveAspectRatio="none">
-              <!-- SVG path, gridlines and gradients rendered dynamically -->
-            </svg>
-          </div>
+          <div class="calendar-container" id="db-calendar-heatmap"></div>
         </article>
       </section>
     </div>
