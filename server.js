@@ -6,9 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 if (existsSync(join(root, '.env.local'))) for (const line of readFileSync(join(root, '.env.local'), 'utf8').split(/\r?\n/)) { const match = line.match(/^\s*([A-Z0-9_]+)=(.*)\s*$/); if (match && !process.env[match[1]]) process.env[match[1]] = match[2]; }
-const { KITE_API_KEY, KITE_API_SECRET, PORT = '4173', APP_PASSWORD, SESSION_SECRET = randomBytes(32).toString('hex') } = process.env;
-const kiteSessions = new Map(), states = new Map();
-const authSessions = new Set();
+const { KITE_API_KEY, KITE_API_SECRET, PORT = '4173', APP_PASSWORD, SESSION_SECRET = randomBytes(32).toString('hex'), GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+const sessions = new Map(); // sessionId → { user: {email,name,picture}, kiteAccessToken?, kiteExpiresAt? }
 const mime = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8', '.woff2': 'font/woff2' };
 const secHeaders = { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' };
 const json = (res, status, data, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...secHeaders, ...headers }); res.end(JSON.stringify(data)); };
@@ -27,66 +26,103 @@ function checkRateLimit(ip) {
     return entry.count <= 5;
 }
 
-function signToken(token) {
-    return createHmac('sha256', SESSION_SECRET).update(token).digest('hex');
-}
+function signToken(token) { return createHmac('sha256', SESSION_SECRET).update(token).digest('hex'); }
+const _secure = () => process.env.NODE_ENV === 'production' ? ' Secure;' : '';
 
 function makeSessionCookie(token, maxAge = 86400) {
     const signed = `${token}.${signToken(token)}`;
-    const secure = process.env.NODE_ENV === 'production' ? ' Secure;' : '';
-    return `findash_auth=${encodeURIComponent(signed)}; HttpOnly;${secure} SameSite=Strict; Path=/; Max-Age=${maxAge}`;
+    return `findash_session=${encodeURIComponent(signed)}; HttpOnly;${_secure()} SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 }
 
-function verifyAuthCookie(req) {
-    if (!APP_PASSWORD) return true;
-    const raw = readCookies(req).findash_auth;
-    if (!raw) return false;
+function makeStateCookie(name, state, maxAge = 600) {
+    const sig = createHmac('sha256', SESSION_SECRET).update(state).digest('hex');
+    return `${name}=${state}.${sig}; HttpOnly;${_secure()} SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+function verifyStateCookie(req, name, state) {
+    const cookie = readCookies(req)[name] || '';
+    const dot = cookie.lastIndexOf('.');
+    if (dot <= 0) return false;
+    const cookieState = cookie.slice(0, dot), cookieSig = cookie.slice(dot + 1);
+    const expected = createHmac('sha256', SESSION_SECRET).update(cookieState).digest('hex');
+    if (cookieSig.length !== expected.length) return false;
+    try { if (!timingSafeEqual(Buffer.from(cookieSig), Buffer.from(expected))) return false; } catch { return false; }
+    return state === cookieState;
+}
+
+function getSession(req) {
+    const raw = readCookies(req).findash_session;
+    if (!raw) return null;
     const dot = raw.lastIndexOf('.');
-    if (dot === -1) return false;
+    if (dot <= 0) return null;
     const token = raw.slice(0, dot), sig = raw.slice(dot + 1);
     const expected = signToken(token);
-    if (sig.length !== expected.length) return false;
-    try { if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return false; } catch { return false; }
-    return authSessions.has(token);
+    if (sig.length !== expected.length) return null;
+    try { if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null; } catch { return null; }
+    return sessions.get(token) || null;
+}
+
+function getSessionId(req) {
+    const raw = readCookies(req).findash_session;
+    if (!raw) return null;
+    const dot = raw.lastIndexOf('.');
+    if (dot <= 0) return null;
+    const token = raw.slice(0, dot);
+    return sessions.has(token) ? token : null;
 }
 
 const LOGIN_PAGE = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FinDash — Login</title>
+<title>FinDash — Sign in</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Manrope',system-ui,sans-serif;background:#f3f6f3;display:flex;align-items:center;justify-content:center;min-height:100vh}
-.card{background:#fff;border-radius:16px;padding:40px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.08)}
+.card{background:#fff;border-radius:16px;padding:40px;width:100%;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,0.08)}
 .logo{font:700 22px 'Manrope',sans-serif;color:#1b2e24;margin-bottom:6px;display:flex;align-items:center;gap:10px}
 .logo span{background:#1b2e24;color:#84e2bd;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-size:14px;font-weight:800}
 .sub{font-size:13px;color:#74817b;margin-bottom:28px}
+.google-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:13px;background:#fff;border:1.5px solid #dce3dc;border-radius:10px;font:600 14px 'Manrope',sans-serif;color:#1b2e24;cursor:pointer;text-decoration:none;transition:background 0.2s,border-color 0.2s}
+.google-btn:hover{background:#f8faf8;border-color:#16835d}
+.google-btn svg{flex-shrink:0}
+.divider{display:flex;align-items:center;gap:12px;margin:24px 0;color:#b0bab5;font-size:11px;text-transform:uppercase;letter-spacing:1px}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:#e8ece8}
 label{font:600 11px 'DM Mono',monospace;color:#74817b;letter-spacing:0.5px;text-transform:uppercase;display:block;margin-bottom:6px}
 input{width:100%;padding:12px 14px;border:1.5px solid #dce3dc;border-radius:10px;font:500 14px 'Manrope',sans-serif;outline:none;transition:border 0.2s}
 input:focus{border-color:#16835d}
-button{width:100%;margin-top:20px;padding:13px;background:#1b2e24;color:#fff;font:600 14px 'Manrope',sans-serif;border:none;border-radius:10px;cursor:pointer;transition:opacity 0.2s}
-button:hover{opacity:0.85}
-.err{color:#c55550;font-size:12px;margin-top:12px;text-align:center;display:none}
+.pw-btn{width:100%;margin-top:16px;padding:13px;background:#1b2e24;color:#fff;font:600 14px 'Manrope',sans-serif;border:none;border-radius:10px;cursor:pointer;transition:opacity 0.2s}
+.pw-btn:hover{opacity:0.85}
+.err{color:#c55550;font-size:12px;margin-top:14px;text-align:center;display:none}
+.pw-section{display:none}
 </style></head><body>
 <div class="card">
 <div class="logo"><span>F</span> FinDash</div>
-<p class="sub">Enter your password to access the dashboard.</p>
+<p class="sub">Sign in to access your trading dashboard.</p>
+<div id="google-section"></div>
+<div id="pw-divider" class="divider" style="display:none">or</div>
+<div id="pw-section" style="display:none">
 <form method="POST" action="/auth/login">
 <label>Password</label>
 <input type="password" name="password" autofocus required autocomplete="current-password"/>
-<button type="submit">Sign in</button>
-<p class="err" id="err"></p>
+<button type="submit" class="pw-btn">Sign in with password</button>
 </form>
+</div>
+<p class="err" id="err"></p>
 </div>
 <script>
 const p=new URLSearchParams(location.search);
 if(p.get('error')){const e=document.getElementById('err');e.textContent=p.get('error');e.style.display='block'}
+fetch('/auth/config').then(r=>r.json()).then(c=>{
+  if(c.google){document.getElementById('google-section').innerHTML='<a href="/auth/google" class="google-btn"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Sign in with Google</a>';}
+  if(c.password){document.getElementById('pw-section').style.display='block';if(c.google)document.getElementById('pw-divider').style.display='flex';}
+  if(!c.google&&!c.password)location.href='/';
+});
 </script>
 </body></html>`;
 
 function authGuard(req, url) {
-    if (!APP_PASSWORD) return null;
     const path = url.pathname;
-    if (path === '/auth/login' || path === '/api/auth/kite/callback') return null;
-    if (verifyAuthCookie(req)) return null;
+    if (path === '/auth/login' || path === '/auth/google' || path === '/auth/google/callback' || path === '/auth/config' || path === '/api/auth/kite/callback') return null;
+    if (getSession(req)) return null;
+    if (!APP_PASSWORD && !GOOGLE_CLIENT_ID) return null;
     return 'login';
 }
 
@@ -537,40 +573,80 @@ function getDashboard(holdings, positions, margins, orders, profile) {
 async function handler(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // ── Login routes ──────────────────────────────────────────────────────────
+    // ── Auth config (tells login page which methods are available) ────────────
+    if (url.pathname === '/auth/config') return json(res, 200, { google: Boolean(GOOGLE_CLIENT_ID), password: Boolean(APP_PASSWORD) });
+
+    // ── Login page ──────────────────────────────────────────────────────────
     if (url.pathname === '/auth/login' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...secHeaders });
         return res.end(LOGIN_PAGE);
     }
 
+    // ── Password login (fallback) ───────────────────────────────────────────
     if (url.pathname === '/auth/login' && req.method === 'POST') {
         const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress;
-        if (!checkRateLimit(ip)) {
-            res.writeHead(302, { Location: '/auth/login?error=Too+many+attempts.+Try+again+in+15+minutes.' });
-            return res.end();
-        }
+        if (!checkRateLimit(ip)) { res.writeHead(302, { Location: '/auth/login?error=Too+many+attempts.+Try+again+in+15+minutes.' }); return res.end(); }
         const body = await readBody(req);
-        const params = new URLSearchParams(body.toString());
-        const password = params.get('password') || '';
-        if (!APP_PASSWORD || password !== APP_PASSWORD) {
-            res.writeHead(302, { Location: '/auth/login?error=Invalid+password.' });
-            return res.end();
-        }
+        const password = new URLSearchParams(body.toString()).get('password') || '';
+        if (!APP_PASSWORD || password !== APP_PASSWORD) { res.writeHead(302, { Location: '/auth/login?error=Invalid+password.' }); return res.end(); }
         const token = randomBytes(32).toString('hex');
-        authSessions.add(token);
+        sessions.set(token, { user: { email: 'admin', name: 'Admin' }, kiteAccessToken: null, kiteExpiresAt: null });
         res.writeHead(302, { Location: '/', 'Set-Cookie': makeSessionCookie(token) });
         return res.end();
     }
 
+    // ── Google OAuth ────────────────────────────────────────────────────────
+    if (url.pathname === '/auth/google' && req.method === 'GET') {
+        if (!GOOGLE_CLIENT_ID) return json(res, 500, { error: 'Google OAuth is not configured.' });
+        const state = randomBytes(24).toString('hex');
+        const redirectUri = process.env.GOOGLE_REDIRECT_URL || `https://${req.headers.host}/auth/google/callback`;
+        const gUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        gUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
+        gUrl.searchParams.set('redirect_uri', redirectUri);
+        gUrl.searchParams.set('response_type', 'code');
+        gUrl.searchParams.set('scope', 'email profile');
+        gUrl.searchParams.set('state', state);
+        gUrl.searchParams.set('prompt', 'select_account');
+        res.writeHead(302, { Location: gUrl.toString(), 'Set-Cookie': makeStateCookie('google_state', state) });
+        return res.end();
+    }
+
+    if (url.pathname === '/auth/google/callback' && req.method === 'GET') {
+        const code = url.searchParams.get('code'), state = url.searchParams.get('state');
+        if (!code || !state || !verifyStateCookie(req, 'google_state', state)) {
+            res.writeHead(302, { Location: '/auth/login?error=Google+sign-in+failed.+Please+try+again.' });
+            return res.end();
+        }
+        try {
+            const redirectUri = process.env.GOOGLE_REDIRECT_URL || `https://${req.headers.host}/auth/google/callback`;
+            const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ code, client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: redirectUri, grant_type: 'authorization_code' }),
+            });
+            const tokenData = await tokenRes.json();
+            if (!tokenRes.ok) throw new Error(tokenData.error_description || 'Token exchange failed');
+            const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+            const userInfo = await userRes.json();
+            if (!userRes.ok) throw new Error('Failed to get user info');
+            const sessionId = randomBytes(32).toString('hex');
+            sessions.set(sessionId, { user: { email: userInfo.email, name: userInfo.name, picture: userInfo.picture }, kiteAccessToken: null, kiteExpiresAt: null });
+            res.writeHead(302, { Location: '/', 'Set-Cookie': [makeSessionCookie(sessionId), 'google_state=; HttpOnly; Path=/; Max-Age=0'] });
+            return res.end();
+        } catch (error) {
+            res.writeHead(302, { Location: `/auth/login?error=${encodeURIComponent(error.message)}` });
+            return res.end();
+        }
+    }
+
+    // ── Logout ──────────────────────────────────────────────────────────────
     if (url.pathname === '/auth/logout' && req.method === 'POST') {
-        const raw = readCookies(req).findash_auth || '';
-        const dot = raw.lastIndexOf('.');
-        if (dot > 0) authSessions.delete(raw.slice(0, dot));
+        const sid = getSessionId(req);
+        if (sid) sessions.delete(sid);
         res.writeHead(302, { Location: '/auth/login', 'Set-Cookie': makeSessionCookie('', 0) });
         return res.end();
     }
 
-    // ── Auth guard (all routes below require login if APP_PASSWORD is set) ───
+    // ── Auth guard ──────────────────────────────────────────────────────────
     const guard = authGuard(req, url);
     if (guard === 'login') {
         if (url.pathname.startsWith('/api/')) return json(res, 401, { error: 'Authentication required.' });
@@ -578,50 +654,55 @@ async function handler(req, res) {
         return res.end();
     }
 
+    // ── User info API ───────────────────────────────────────────────────────
+    if (url.pathname === '/api/me') {
+        const s = getSession(req);
+        return json(res, 200, { user: s?.user || null, kiteConnected: Boolean(s?.kiteAccessToken && s?.kiteExpiresAt > Date.now()) });
+    }
+
     if (url.pathname === '/api/health') return json(res, 200, { ok: true, kiteConfigured: Boolean(KITE_API_KEY && KITE_API_SECRET) });
 
+    // ── Kite OAuth ──────────────────────────────────────────────────────────
     if (url.pathname === '/api/auth/kite') {
         if (!KITE_API_KEY || !KITE_API_SECRET) return json(res, 500, { error: 'Kite credentials are not configured.' });
         const state = randomBytes(24).toString('hex');
-        const stateSig = createHmac('sha256', SESSION_SECRET).update(state).digest('hex');
         const login = new URL('https://kite.zerodha.com/connect/login');
         login.searchParams.set('v', '3');
         login.searchParams.set('api_key', KITE_API_KEY);
         login.searchParams.set('redirect_params', `state=${state}`);
-        const secure = process.env.NODE_ENV === 'production' ? ' Secure;' : '';
-        res.writeHead(302, { Location: login.toString(), 'Set-Cookie': `kite_state=${state}.${stateSig}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=600` });
+        res.writeHead(302, { Location: login.toString(), 'Set-Cookie': makeStateCookie('kite_state', state) });
         return res.end();
     }
 
     if (url.pathname === '/api/auth/kite/callback') {
-        const requestToken = url.searchParams.get('request_token'), state = url.searchParams.get('state'), cookie = readCookies(req).kite_state || '';
-        const dot = cookie.lastIndexOf('.');
-        const cookieState = dot > 0 ? cookie.slice(0, dot) : '', cookieSig = dot > 0 ? cookie.slice(dot + 1) : '';
-        const expectedSig = createHmac('sha256', SESSION_SECRET).update(cookieState).digest('hex');
-        const sigValid = cookieSig.length === expectedSig.length && (() => { try { return timingSafeEqual(Buffer.from(cookieSig), Buffer.from(expectedSig)); } catch { return false; } })();
-        if (!requestToken || !state || state !== cookieState || !sigValid) { res.writeHead(400); return res.end('Invalid or expired Kite sign-in request. Please try connecting again.'); }
+        const requestToken = url.searchParams.get('request_token'), state = url.searchParams.get('state');
+        if (!requestToken || !state || !verifyStateCookie(req, 'kite_state', state)) { res.writeHead(400); return res.end('Invalid or expired Kite sign-in request. Please try connecting again.'); }
         const checksum = createHash('sha256').update(`${KITE_API_KEY}${requestToken}${KITE_API_SECRET}`).digest('hex');
         try {
             const response = await fetch('https://api.kite.trade/session/token', { method: 'POST', headers: { 'X-Kite-Version': '3', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ api_key: KITE_API_KEY, request_token: requestToken, checksum }) });
             const body = await response.json();
             if (!response.ok || body.status !== 'success') throw new Error(body.message || 'Kite authentication failed');
-            const id = randomBytes(32).toString('base64url');
-            kiteSessions.set(id, { accessToken: body.data.access_token, expiresAt: Date.now() + 72000000 });
-            res.writeHead(302, { Location: '/', 'Set-Cookie': `findash_session=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=72000` });
+            const sid = getSessionId(req);
+            const session = sid ? sessions.get(sid) : null;
+            if (session) {
+                session.kiteAccessToken = body.data.access_token;
+                session.kiteExpiresAt = Date.now() + 72000000;
+            }
+            res.writeHead(302, { Location: '/', 'Set-Cookie': 'kite_state=; HttpOnly; Path=/; Max-Age=0' });
             return res.end();
         } catch (error) { res.writeHead(502); return res.end(`Kite connection failed: ${error.message}`); }
     }
 
     if (url.pathname === '/api/dashboard') {
-        const session = kiteSessions.get(readCookies(req).findash_session);
-        if (!session || session.expiresAt < Date.now()) return json(res, 401, { connected: false, error: 'Connect your Zerodha account to load live holdings.' });
+        const session = getSession(req);
+        if (!session?.kiteAccessToken || session.kiteExpiresAt < Date.now()) return json(res, 401, { connected: false, error: 'Connect your Zerodha account to load live holdings.' });
         try {
             const [holdings, positions, margins, orders, profile] = await Promise.all([
-                kite('/portfolio/holdings', session.accessToken),
-                kite('/portfolio/positions', session.accessToken),
-                kite('/user/margins', session.accessToken),
-                kite('/orders', session.accessToken),
-                kite('/user/profile', session.accessToken),
+                kite('/portfolio/holdings', session.kiteAccessToken),
+                kite('/portfolio/positions', session.kiteAccessToken),
+                kite('/user/margins', session.kiteAccessToken),
+                kite('/orders', session.kiteAccessToken),
+                kite('/user/profile', session.kiteAccessToken),
             ]);
             return json(res, 200, getDashboard(holdings, positions, margins, orders, profile));
         } catch (error) { return json(res, 502, { connected: false, error: error.message }); }
@@ -642,10 +723,10 @@ async function handler(req, res) {
     }
 
     if (url.pathname === '/api/trades/sync' && req.method === 'POST') {
-        const session = kiteSessions.get(readCookies(req).findash_session);
-        if (!session || session.expiresAt < Date.now()) return json(res, 401, { error: 'Not authenticated. Connect Zerodha first.' });
+        const session = getSession(req);
+        if (!session?.kiteAccessToken || session.kiteExpiresAt < Date.now()) return json(res, 401, { error: 'Not authenticated. Connect Zerodha first.' });
         try {
-            const kiteTrades = await kite('/trades', session.accessToken);
+            const kiteTrades = await kite('/trades', session.kiteAccessToken);
             const newRaw = (kiteTrades || [])
                 .filter(t => (t.transaction_type === 'BUY' || t.transaction_type === 'SELL'))
                 .map(kiteTradeToRaw);
@@ -754,8 +835,9 @@ async function handler(req, res) {
     }
 
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
-        kiteSessions.delete(readCookies(req).findash_session);
-        return json(res, 200, { ok: true }, { 'Set-Cookie': 'findash_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
+        const session = getSession(req);
+        if (session) { session.kiteAccessToken = null; session.kiteExpiresAt = null; }
+        return json(res, 200, { ok: true });
     }
 
     if (url.pathname.startsWith('/api/')) return json(res, 404, { error: 'Not found' });
