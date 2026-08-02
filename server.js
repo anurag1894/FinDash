@@ -583,19 +583,23 @@ async function handler(req, res) {
     if (url.pathname === '/api/auth/kite') {
         if (!KITE_API_KEY || !KITE_API_SECRET) return json(res, 500, { error: 'Kite credentials are not configured.' });
         const state = randomBytes(24).toString('hex');
-        states.set(state, Date.now());
+        const stateSig = createHmac('sha256', SESSION_SECRET).update(state).digest('hex');
         const login = new URL('https://kite.zerodha.com/connect/login');
         login.searchParams.set('v', '3');
         login.searchParams.set('api_key', KITE_API_KEY);
         login.searchParams.set('redirect_params', `state=${state}`);
-        res.writeHead(302, { Location: login.toString(), 'Set-Cookie': `kite_state=${state}; HttpOnly; SameSite=Lax; Path=/api/auth/kite; Max-Age=600` });
+        const secure = process.env.NODE_ENV === 'production' ? ' Secure;' : '';
+        res.writeHead(302, { Location: login.toString(), 'Set-Cookie': `kite_state=${state}.${stateSig}; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=600` });
         return res.end();
     }
 
     if (url.pathname === '/api/auth/kite/callback') {
-        const requestToken = url.searchParams.get('request_token'), state = url.searchParams.get('state'), expected = readCookies(req).kite_state;
-        if (!requestToken || !state || state !== expected || !states.has(state)) { res.writeHead(400); return res.end('Invalid or expired Kite sign-in request.'); }
-        states.delete(state);
+        const requestToken = url.searchParams.get('request_token'), state = url.searchParams.get('state'), cookie = readCookies(req).kite_state || '';
+        const dot = cookie.lastIndexOf('.');
+        const cookieState = dot > 0 ? cookie.slice(0, dot) : '', cookieSig = dot > 0 ? cookie.slice(dot + 1) : '';
+        const expectedSig = createHmac('sha256', SESSION_SECRET).update(cookieState).digest('hex');
+        const sigValid = cookieSig.length === expectedSig.length && (() => { try { return timingSafeEqual(Buffer.from(cookieSig), Buffer.from(expectedSig)); } catch { return false; } })();
+        if (!requestToken || !state || state !== cookieState || !sigValid) { res.writeHead(400); return res.end('Invalid or expired Kite sign-in request. Please try connecting again.'); }
         const checksum = createHash('sha256').update(`${KITE_API_KEY}${requestToken}${KITE_API_SECRET}`).digest('hex');
         try {
             const response = await fetch('https://api.kite.trade/session/token', { method: 'POST', headers: { 'X-Kite-Version': '3', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ api_key: KITE_API_KEY, request_token: requestToken, checksum }) });
